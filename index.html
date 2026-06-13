@@ -9,15 +9,16 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --verde:    #1a6b4a;
-      --verde-lt: #e8f4ee;
-      --areia:    #f7f3ed;
-      --texto:    #1c1c1c;
-      --muted:    #6b7280;
-      --borda:    #d8d0c6;
-      --branco:   #ffffff;
-      --tag-bg:   #dff0e8;
-      --tag-tx:   #155c3b;
+      --verde:    #1a4a6b;
+      --verde-lt: #1a3a52;
+      --areia:    #0d1f2d;
+      --texto:    #e8f0f7;
+      --muted:    #7a9bb5;
+      --borda:    #1e3a50;
+      --branco:   #112233;
+      --tag-bg:   #1a3a52;
+      --tag-tx:   #7ec8e3;
+      --accent:   #e8a020;
     }
 
     body {
@@ -29,8 +30,8 @@
 
     /* ── HEADER ── */
     header {
-      background: var(--verde);
-      color: var(--branco);
+      background: #1a4a6b;
+      color: #ffffff;
       padding: 2.5rem 1.5rem 2rem;
       text-align: center;
     }
@@ -53,7 +54,7 @@
       flex-wrap: wrap;
     }
     .btn-cadastrar {
-      background: var(--branco);
+      background: var(--accent);
       color: var(--verde);
       font-weight: 600;
       font-size: 0.9rem;
@@ -62,7 +63,7 @@
       text-decoration: none;
       transition: opacity 0.15s;
     }
-    .btn-cadastrar:hover { opacity: 0.85; }
+    .btn-cadastrar:hover { opacity: 0.88; }
 
     /* ── FILTROS ── */
     .filtros-wrap {
@@ -108,7 +109,7 @@
       font-family: 'Inter', sans-serif;
       transition: background 0.15s;
     }
-    .btn-limpar:hover { background: var(--verde-lt); color: var(--verde); }
+    .btn-limpar:hover { background: var(--verde-lt); color: var(--texto); }
 
     /* ── CONTAGEM ── */
     .contagem {
@@ -226,6 +227,33 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── STATS ── */
+    .stats-wrap {
+      background: #1a4a6b;
+      padding: 1rem 1.5rem;
+      overflow-x: auto;
+    }
+    .stats-inner {
+      display: flex;
+      gap: 0.75rem;
+      max-width: 900px;
+      margin: 0 auto;
+      flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 999px;
+      padding: 0.3rem 0.85rem;
+      font-size: 0.78rem;
+      color: #e8f0f7;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .stat-pill:hover { background: rgba(255,255,255,0.2); }
+    .stat-pill span { color: var(--accent); font-weight: 600; margin-left: 0.3rem; }
+
     /* ── RESPONSIVO ── */
     @media (max-width: 480px) {
       .lista { grid-template-columns: 1fr; }
@@ -244,6 +272,10 @@
     </a>
   </div>
 </header>
+
+<div class="stats-wrap" id="stats-wrap" style="display:none">
+  <div class="stats-inner" id="stats-inner"></div>
+</div>
 
 <div class="filtros-wrap">
   <div class="filtros-grid">
@@ -322,6 +354,7 @@
       const json = JSON.parse(txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
       const rows = json.table.rows;
       dados = rows.map(r => r.c.map(c => c ? (c.f || c.v || '') : ''));
+      renderizarStats();
       renderizar();
     } catch(e) {
       document.getElementById('lista').innerHTML =
@@ -414,6 +447,32 @@
       .replace(/</g,'&lt;')
       .replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;');
+  }
+
+  function renderizarStats() {
+    const contagem = {};
+    dados.forEach(r => {
+      const reg = r[COL.REGIAO] || 'Sem região';
+      contagem[reg] = (contagem[reg] || 0) + 1;
+    });
+    const wrap = document.getElementById('stats-wrap');
+    const inner = document.getElementById('stats-inner');
+    if (dados.length === 0) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    const total = dados.length;
+    inner.innerHTML =
+      `<div class="stat-pill" onclick="limparFiltros()">Total<span>${total}</span></div>` +
+      Object.entries(contagem)
+        .sort((a,b) => b[1]-a[1])
+        .map(([reg, n]) =>
+          `<div class="stat-pill" onclick="filtrarPorRegiao('${reg}')">${reg}<span>${n}</span></div>`
+        ).join('');
+  }
+
+  function filtrarPorRegiao(regiao) {
+    document.getElementById('f-regiao').value = regiao;
+    renderizar();
+    document.getElementById('stats-wrap').scrollIntoView({behavior:'smooth'});
   }
 
   function limparFiltros() {
