@@ -247,6 +247,10 @@
 
 <div class="filtros-wrap">
   <div class="filtros-grid">
+    <select id="f-estado">
+      <option value="">Todos os estados</option>
+      <option>RJ</option>
+    </select>
     <select id="f-regiao">
       <option value="">Todas as regiões</option>
       <option>Capital — Zona Sul</option>
@@ -305,7 +309,7 @@
   // 5: Tipo    | 6: Quartos | 7: Hóspedes | 8: Diferenciais
   // 9: Link    | 10: Contato
   const COL = { TS:0, NOME:1, REGIAO:2, CIDADE:3, BAIRRO:4,
-                TIPO:5, QUARTOS:6, HOSPEDES:7, DIFER:8, LINK:9, CONTATO:10 };
+                TIPO:5, QUARTOS:6, HOSPEDES:7, DIFER:8, LINK:9, CONTATO:10, ESTADO:11 };
   // ─────────────────────────────────────────────────────────
 
   let dados = [];
@@ -326,6 +330,7 @@
   }
 
   function renderizar() {
+    const estado   = document.getElementById('f-estado').value.trim();
     const regiao   = document.getElementById('f-regiao').value.trim();
     const tipo     = document.getElementById('f-tipo').value.trim();
     const quartos  = document.getElementById('f-quartos').value;
@@ -333,6 +338,7 @@
     const busca    = document.getElementById('f-busca').value.toLowerCase().trim();
 
     const filtrados = dados.filter(r => {
+      if (estado   && r[COL.ESTADO] !== estado)  return false;
       if (regiao   && r[COL.REGIAO] !== regiao) return false;
       if (tipo     && r[COL.TIPO]   !== tipo)   return false;
       if (quartos !== '') {
@@ -362,8 +368,9 @@
     }
 
     lista.innerHTML = filtrados.map(r => {
+      const estado = r[COL.ESTADO] ? ` · ${r[COL.ESTADO]}` : '';
       const bairro = r[COL.BAIRRO] ? `, ${r[COL.BAIRRO]}` : '';
-      const local  = `${r[COL.CIDADE]}${bairro}`;
+      const local  = `${r[COL.CIDADE]}${bairro}${estado}`;
       const q      = r[COL.QUARTOS] ? `${r[COL.QUARTOS]} quarto${r[COL.QUARTOS]==='1'?'':'s'}` : '';
       const h      = r[COL.HOSPEDES] ? `até ${r[COL.HOSPEDES]} hóspedes` : '';
       const difer  = r[COL.DIFER] ? `<div class="card-diferenciais">${escHtml(r[COL.DIFER])}</div>` : '';
@@ -410,13 +417,13 @@
   }
 
   function limparFiltros() {
-    ['f-regiao','f-tipo','f-quartos'].forEach(id => document.getElementById(id).value = '');
+    ['f-estado','f-regiao','f-tipo','f-quartos'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('f-hospedes').value = '';
     document.getElementById('f-busca').value = '';
     renderizar();
   }
 
-  ['f-regiao','f-tipo','f-quartos','f-hospedes','f-busca'].forEach(id => {
+  ['f-estado','f-regiao','f-tipo','f-quartos','f-hospedes','f-busca'].forEach(id => {
     document.getElementById(id).addEventListener('input', renderizar);
   });
 
