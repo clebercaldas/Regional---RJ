@@ -38,6 +38,17 @@ int main() {
     std::printf("3) in-place: diferenca max=%g (esperado 0)\n", diff);
     if (diff > 1e-7f) ++fails;
 
+    // 4) Suavizacao: salto de Input 0 -> 24 dB nao pode gerar degrau no 1o sample
+    p.prepare(sr);
+    for (int i = 0; i < n; ++i) in[i] = 0.05f;
+    p.setParams(0, 0, 200, 400, 4);
+    p.process(in.data(), L.data(), R.data(), 100);
+    p.setParams(24, 0, 200, 400, 4);
+    p.process(in.data(), L.data() + 100, R.data() + 100, 2000);
+    float step = 0; for (int i = 1; i < 2100; ++i) step = std::max(step, std::fabs(L[i] - L[i - 1]));
+    std::printf("4) salto de Input: degrau=%g (esperado < 5e-3)\n", step);
+    if (step > 5e-3f) ++fails;
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }
