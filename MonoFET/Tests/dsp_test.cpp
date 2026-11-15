@@ -83,6 +83,28 @@ int main() {
     std::printf("7) lookahead 0 ms: %g, 5 ms: %g (esperado 5 ms > 1.2x)\n", m0, m5);
     if (m5 < 1.2f * m0) ++fails;
 
+    // 8) Lookahead Off: latencia zero, impulso sai na mesma amostra
+    p.prepare(sr);
+    std::fill(o6.begin(), o6.end(), 0.f);
+    p.setParams(0, 0, 200, 400, 4, 0.f, 2.f, false);
+    p.process(imp.data(), o6.data(), 2000);
+    am = 0; for (int i = 0; i < 2000; ++i) if (std::fabs(o6[i]) > std::fabs(o6[am])) am = i;
+    std::printf("8) off: latencia=%d, pico em %d (esperado 0 e 100)\n", p.latencySamples(), am);
+    if (p.latencySamples() != 0 || am != 100) ++fails;
+
+    // 9) Alternar On/Off durante o processamento: saida finita e limitada
+    p.prepare(sr);
+    std::vector<float> sg(4800), og(4800);
+    for (int i = 0; i < 4800; ++i) sg[i] = 0.8f * std::sin(2 * 3.14159265f * 220.f * i / sr);
+    bool ok = true;
+    for (int k = 0; k < 6; ++k) {
+        p.setParams(12, 0, 200, 400, 4, -18.f, 3.f, k % 2 == 0);
+        p.process(sg.data(), og.data(), 4800);
+        for (float v : og) if (!std::isfinite(v) || std::fabs(v) > 2.f) ok = false;
+    }
+    std::printf("9) alternar on/off: saida valida=%d (esperado 1)\n", ok);
+    if (!ok) ++fails;
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }

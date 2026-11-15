@@ -67,15 +67,17 @@ public:
         sampleRate = sr;
         delay = (int)std::lround(kLatencySec * sr);
         buf.assign(delay + 2, 0.f);
-        pos = 0; look = tgtLook = 0.f; lookSnap = true;
+        pos = 0; look = tgtLook = 0.f; lookSnap = true; prevOn = true; activeDelay = delay;
         lookCoef = std::exp(-1.f / (0.01f * (float)sr));
     }
-    int latencySamples() const { return delay; }
+    int latencySamples() const { return activeDelay; }
 
     void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio,
-                   float thrDb = -18.f, float lookMs = 2.f) {
+                   float thrDb = -18.f, float lookMs = 2.f, bool lookOn = true) {
         comp.setParams(inDb, outDb, attackUs, releaseMs, ratio, thrDb);
-        tgtLook = std::min(std::max(lookMs, 0.f) * 1e-3f * (float)sampleRate, (float)delay);
+        if (lookOn != prevOn) { prevOn = lookOn; lookSnap = true; }   // troca de modo: sem rampa
+        activeDelay = lookOn ? delay : 0;                             // desligado: latencia zero
+        tgtLook = lookOn ? std::min(std::max(lookMs, 0.f) * 1e-3f * (float)sampleRate, (float)delay) : 0.f;
         if (lookSnap) { look = tgtLook; lookSnap = false; }
     }
     // Seguro em processamento in-place (in == out).
@@ -84,11 +86,11 @@ public:
         for (int i = 0; i < n; ++i) {
             buf[pos] = in[i];
             look = lookCoef * look + (1.f - lookCoef) * tgtLook;
-            const float dDet = (float)delay - look;          // atraso do detector em samples
+            const float dDet = std::max(0.f, (float)activeDelay - look);   // atraso do detector em samples
             const int i0 = (int)dDet;
             const float fr = dDet - (float)i0;
             const float xDet = tap(i0, size) * (1.f - fr) + tap(i0 + 1, size) * fr;
-            const float l = tap(delay, size);                // audio atrasado (ramo seco)
+            const float l = tap(activeDelay, size);                // audio atrasado (ramo seco)
             const float r = -comp.process(xDet, l);          // ramo invertido e comprimido
             out[i] = l + r;
             pos = (pos + 1) % size;
@@ -98,7 +100,8 @@ private:
     FETCompressor comp;
     std::vector<float> buf;
     double sampleRate = 44100.0;
-    int delay = 0, pos = 0;
+    int delay = 0, activeDelay = 0, pos = 0;
+    bool prevOn = true;
     float look = 0.f, tgtLook = 0.f, lookCoef = 0.f;
     bool lookSnap = true;
     float tap(int d, int size) const { return buf[(pos - d + size) % size]; }
