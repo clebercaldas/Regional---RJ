@@ -8,6 +8,16 @@ class Biquad {
 public:
     void setHP(float f, double sr) { set(f, sr, true); }
     void setLP(float f, double sr) { set(f, sr, false); }
+    // Filtro de pico (RBJ): gainDb de reforco/corte em torno de f, largura pelo Q.
+    void setPeak(float f, float gainDb, float q, double sr) {
+        f = std::min(std::max(f, 10.f), 0.45f * (float)sr);
+        const float A = std::pow(10.f, gainDb / 40.f);
+        const float w = 2.f * 3.14159265f * f / (float)sr;
+        const float c = std::cos(w), al = std::sin(w) / (2.f * std::max(q, 0.1f));
+        const float a0 = 1.f + al / A;
+        b0 = (1.f + al * A) / a0; b1 = -2.f * c / a0; b2 = (1.f - al * A) / a0;
+        a1 = -2.f * c / a0;       a2 = (1.f - al / A) / a0;
+    }
     void reset() { z1 = z2 = 0.f; }
     float process(float x) {
         const float y = b0 * x + z1;
@@ -29,8 +39,8 @@ private:
     }
 };
 
-// Compressor FET simplificado (estilo 1176): threshold fixo, o Input empurra o sinal contra ele.
-class FETCompressor {
+// Compressor VCA feedforward (detector em dB, ganho linear no audio). Output compensa o Input.
+class VCACompressor {
 public:
     void prepare(double sr) {
         sampleRate = sr; grDb = 0.f; snap = true;
@@ -83,7 +93,7 @@ private:
     }
 };
 
-// mono -> L=R -> (R: polaridade invertida + FET) -> L + R -> saida mono
+// mono -> L=R -> (R: polaridade invertida + compressor VCA) -> L + mix*R -> saida mono
 class MonoFETProcessor {
 public:
     // Latencia fixa: o audio sempre sai atrasado kLatencySec. O Lookahead (0 a kLatencySec)
@@ -96,7 +106,7 @@ public:
         delay = (int)std::lround(kLatencySec * sr);
         buf.assign(delay + 2, 0.f);
         bufF.assign(delay + 2, 0.f);
-        hpf.reset(); lpf.reset(); filtSnap = true;
+        hpf.reset(); lpf.reset(); peq.reset(); filtSnap = true; peqDirty = true;
         filtCoef = std::exp(-1.f / (0.01f * (float)sr));
         pos = 0; look = tgtLook = 0.f; lookSnap = true; prevOn = true; activeDelay = delay;
         lookCoef = std::exp(-1.f / (0.01f * (float)sr));
@@ -105,10 +115,15 @@ public:
 
     void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio,
                    float thrDb = -18.f, float lookMs = 2.f, bool lookOn = true,
-                   float hpfHz = 20.f, float lpfHz = 20000.f, bool eqMode = false, bool compOn = true) {
+                   float hpfHz = 20.f, float lpfHz = 20000.f, bool eqMode = false, bool compOn = true,
+                   float mixAmt = 1.f, float peqHz = 1000.f, float peqDb = 0.f, float peqQ = 1.f) {
         comp.setParams(inDb, outDb, attackUs, releaseMs, ratio, thrDb);
         tgtHp = hpfHz; tgtLp = lpfHz; eq = eqMode; compEnabled = compOn;
         hpOff = hpfHz <= 20.5f; lpOff = lpfHz >= 19990.f;   // nas pontas o filtro sai do caminho (sem fase)
+        tgtMix = std::min(std::max(mixAmt, 0.f), 1.f);
+        tgtPf = peqHz; tgtPg = peqDb;
+        if (peqQ != qPeq) { qPeq = peqQ; peqDirty = true; }
+        if (filtSnap) { mix = tgtMix; curPf = tgtPf; curPg = tgtPg; }
         if (filtSnap) { curHp = tgtHp; curLp = tgtLp; hpf.setHP(curHp, sampleRate); lpf.setLP(curLp, sampleRate); filtSnap = false; }
         if (lookOn != prevOn) { prevOn = lookOn; lookSnap = true; }   // troca de modo: sem rampa
         activeDelay = lookOn ? delay : 0;                             // desligado: latencia zero
@@ -124,10 +139,18 @@ public:
             curLp = filtCoef * curLp + (1.f - filtCoef) * tgtLp;
             if (std::fabs(curHp - tgtHp) > 1e-3f * tgtHp) hpf.setHP(curHp, sampleRate);
             if (std::fabs(curLp - tgtLp) > 1e-3f * tgtLp) lpf.setLP(curLp, sampleRate);
+            mix = filtCoef * mix + (1.f - filtCoef) * tgtMix;
+            curPf = filtCoef * curPf + (1.f - filtCoef) * tgtPf;
+            curPg = filtCoef * curPg + (1.f - filtCoef) * tgtPg;
+            if (peqDirty || std::fabs(curPf - tgtPf) > 1e-3f * tgtPf || std::fabs(curPg - tgtPg) > 0.01f) {
+                peq.setPeak(curPf, curPg, qPeq, sampleRate); peqDirty = false;
+            }
+            const bool peqOff = std::fabs(curPg) < 0.05f && std::fabs(tgtPg) < 0.05f;   // 0 dB: fora do caminho
             float f = in[i];
+            if (peqOff) peq.reset(); else f = peq.process(f);
             if (hpOff) hpf.reset(); else f = hpf.process(f);
             if (lpOff) lpf.reset(); else f = lpf.process(f);
-            bufF[pos] = f;                                           // sinal filtrado (HPF + LPF)
+            bufF[pos] = f;                                           // sinal filtrado (paramétrico + HPF + LPF)
             look = lookCoef * look + (1.f - lookCoef) * tgtLook;
             const float dDet = std::max(0.f, (float)activeDelay - look);   // atraso do detector em samples
             const int i0 = (int)dDet;
@@ -138,14 +161,16 @@ public:
             float r;
             if (compEnabled) r = -comp.process(xDet, rIn);                 // ramo invertido e comprimido
             else { comp.reset(); r = -rIn; }                               // compressor off: so inversao (e EQ)
-            out[i] = l + r;
+            out[i] = l + mix * r;                                          // mix 0 = so o original atrasado
             pos = (pos + 1) % size;
         }
     }
 private:
-    FETCompressor comp;
+    VCACompressor comp;
     std::vector<float> buf, bufF;
-    Biquad hpf, lpf;
+    Biquad hpf, lpf, peq;
+    float mix = 1.f, tgtMix = 1.f, curPf = 1000.f, tgtPf = 1000.f, curPg = 0.f, tgtPg = 0.f, qPeq = 1.f;
+    bool peqDirty = true;
     float curHp = 20.f, tgtHp = 20.f, curLp = 20000.f, tgtLp = 20000.f, filtCoef = 0.f;
     bool filtSnap = true, eq = false, compEnabled = true, hpOff = true, lpOff = true;
     double sampleRate = 44100.0;

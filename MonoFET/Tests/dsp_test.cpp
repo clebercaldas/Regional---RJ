@@ -167,6 +167,51 @@ int main() {
         if (pk > 1e-4f) ++fails;
     }
 
+    // 16) Mix: out(mix) = L + mix*R, entao mix 0.5 e a media de mix 0 e mix 1; mix 0 e o original atrasado
+    {
+        auto sg = tone(300.f, 0.7f, 9600);
+        auto go = [&](float m) {
+            MonoFETProcessor q; q.prepare(sr); std::vector<float> o(9600);
+            q.setParams(0, 0, 200, 400, 4, -18.f, 2.f, true, 20.f, 20000.f, false, true, m);
+            q.process(sg.data(), o.data(), 9600); return o;
+        };
+        auto m0 = go(0.f), mh = go(0.5f), m1 = go(1.f);
+        float e1 = 0, e2 = 0; int d = 240;
+        for (int i = 0; i < 9600; ++i) {
+            e1 = std::max(e1, std::fabs(mh[i] - 0.5f * (m0[i] + m1[i])));
+            if (i >= d) e2 = std::max(e2, std::fabs(m0[i] - sg[i - d]));
+        }
+        std::printf("16) mix: erro media=%g, erro mix 0 vs original atrasado=%g (esperado < 1e-6)\n", e1, e2);
+        if (e1 > 1e-6f || e2 > 1e-6f) ++fails;
+    }
+
+    // 17) Parametrico no detector: corte de 18 dB em 1 kHz tira o tom do detector (nao comprime); ganho 0 comprime
+    {
+        auto sg = tone(1000.f, 0.3f, 48000);
+        auto run2 = [&](float peqDb) {
+            MonoFETProcessor q; q.prepare(sr); std::vector<float> o(48000);
+            q.setParams(0, 0, 200, 400, 4, -18.f, 2.f, true, 20.f, 20000.f, false, true, 1.f, 1000.f, peqDb, 1.f);
+            q.process(sg.data(), o.data(), 48000); return peak(o, 24000);
+        };
+        float cut = run2(-18.f), flat = run2(0.f), boost = run2(12.f);
+        std::printf("17) PEQ no detector: -18 dB pico=%g (esperado < 0.01), 0 dB pico=%g (esperado > 0.05), +12 dB pico=%g (esperado maior que o de 0 dB)\n", cut, flat, boost);
+        if (cut > 0.01f || flat < 0.05f || boost <= flat) ++fails;
+    }
+
+    // 18) Mexer em mix e PEQ com audio rodando: saida valida
+    {
+        MonoFETProcessor q; q.prepare(sr);
+        auto sg = tone(1000.f, 0.8f, 4800); std::vector<float> og(4800); bool ok = true;
+        for (int k = 0; k < 8; ++k) {
+            q.setParams(12, 0, 200, 400, 4, -18.f, 2.f, true, 20.f, 20000.f, k % 2, true,
+                        0.1f * k, 200.f + 1200.f * k, -18.f + 5.f * k, 0.3f + 1.2f * k);
+            q.process(sg.data(), og.data(), 4800);
+            for (float v : og) if (!std::isfinite(v) || std::fabs(v) > 3.f) ok = false;
+        }
+        std::printf("18) mix e PEQ em movimento: saida valida=%d (esperado 1)\n", ok);
+        if (!ok) ++fails;
+    }
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }
