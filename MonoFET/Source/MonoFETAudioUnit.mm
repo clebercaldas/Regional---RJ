@@ -4,8 +4,7 @@
 #include <vector>
 #include "MonoFETProcessor.hpp"
 
-enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kNumParams };
-static const float kRatios[4] = {4.f, 8.f, 12.f, 20.f};
+enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
 
 @interface MonoFETAudioUnit : AUAudioUnit
 @end
@@ -40,11 +39,12 @@ static const float kRatios[4] = {4.f, 8.f, 12.f, 20.f};
     AUParameter *pOut = [AUParameterTree createParameterWithIdentifier:@"output"  name:@"Output"  address:kOutput  min:-24  max:24   unit:kAudioUnitParameterUnit_Decibels      unitName:nil  flags:fl valueStrings:nil dependentParameters:nil];
     AUParameter *pAtk = [AUParameterTree createParameterWithIdentifier:@"attack"  name:@"Attack"  address:kAttack  min:20   max:800  unit:kAudioUnitParameterUnit_Generic       unitName:@"us" flags:fl valueStrings:nil dependentParameters:nil];
     AUParameter *pRel = [AUParameterTree createParameterWithIdentifier:@"release" name:@"Release" address:kRelease min:50   max:1100 unit:kAudioUnitParameterUnit_Milliseconds  unitName:nil  flags:fl valueStrings:nil dependentParameters:nil];
-    AUParameter *pRat = [AUParameterTree createParameterWithIdentifier:@"ratio"   name:@"Ratio"   address:kRatio   min:0    max:3    unit:kAudioUnitParameterUnit_Indexed       unitName:nil  flags:fl valueStrings:@[@"4:1", @"8:1", @"12:1", @"20:1"] dependentParameters:nil];
-    pIn.value = 12; pOut.value = 0; pAtk.value = 200; pRel.value = 400; pRat.value = 0;
-    for (AUParameter *prm in @[pIn, pOut, pAtk, pRel, pRat]) _p[prm.address].store(prm.value);
+    AUParameter *pRat = [AUParameterTree createParameterWithIdentifier:@"ratio"   name:@"Ratio"   address:kRatio   min:1.5  max:20   unit:kAudioUnitParameterUnit_Ratio         unitName:nil  flags:fl valueStrings:nil dependentParameters:nil];
+    AUParameter *pThr = [AUParameterTree createParameterWithIdentifier:@"threshold" name:@"Threshold" address:kThreshold min:-60 max:0 unit:kAudioUnitParameterUnit_Decibels unitName:nil flags:fl valueStrings:nil dependentParameters:nil];
+    pIn.value = 12; pOut.value = 0; pAtk.value = 200; pRel.value = 400; pRat.value = 4; pThr.value = -18;
+    for (AUParameter *prm in @[pIn, pOut, pAtk, pRel, pRat, pThr]) _p[prm.address].store(prm.value);
 
-    _tree = [AUParameterTree createTreeWithChildren:@[pIn, pOut, pAtk, pRel, pRat]];
+    _tree = [AUParameterTree createTreeWithChildren:@[pIn, pOut, pAtk, pRel, pRat, pThr]];
     std::atomic<float> *p = _p;
     _tree.implementorValueObserver = ^(AUParameter *param, AUValue value) { p[param.address].store(value); };
     _tree.implementorValueProvider = ^AUValue(AUParameter *param) { return p[param.address].load(); };
@@ -93,9 +93,8 @@ static const float kRatios[4] = {4.f, 8.f, 12.f, 20.f};
         if (!r) { r = scratch->data();               out->mBuffers[1].mData = r; }
         out->mBuffers[0].mDataByteSize = out->mBuffers[1].mDataByteSize = frames * sizeof(float);
 
-        int ri = (int)std::lround(p[kRatio].load());
         dsp->setParams(p[kInput].load(), p[kOutput].load(), p[kAttack].load(), p[kRelease].load(),
-                       kRatios[std::clamp(ri, 0, 3)]);
+                       p[kRatio].load(), p[kThreshold].load());
         dsp->process((const float *)in.mBuffers[0].mData, l, r, (int)frames);
         return noErr;
     };

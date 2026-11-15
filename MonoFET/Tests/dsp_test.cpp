@@ -49,6 +49,17 @@ int main() {
     std::printf("4) salto de Input: degrau=%g (esperado < 5e-3)\n", step);
     if (step > 5e-3f) ++fails;
 
+    // 5) Threshold ajustavel: threshold alto (0 dB) nao comprime, threshold baixo comprime
+    for (int i = 0; i < n; ++i) in[i] = 0.5f * std::sin(2 * 3.14159265f * 440.f * i / sr);
+    p.prepare(sr); p.setParams(0, 0, 200, 400, 4, 0.f);
+    p.process(in.data(), L.data(), R.data(), n);
+    float hi = peak(L, n / 2);
+    p.prepare(sr); p.setParams(0, 0, 200, 400, 4, -40.f);
+    p.process(in.data(), L.data(), R.data(), n);
+    float lo = peak(L, n / 2);
+    std::printf("5) threshold 0 dB: pico=%g (esperado ~0), -40 dB: pico=%g (esperado > 0.2)\n", hi, lo);
+    if (hi > 0.05f || lo < 0.2f) ++fails;
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }

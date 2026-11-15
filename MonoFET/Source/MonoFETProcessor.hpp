@@ -11,11 +11,12 @@ public:
         update();
     }
 
-    void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio) {
+    void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio, float thrDb = -18.f) {
+        tgtThr = thrDb;
         tgtIn  = std::pow(10.f, inDb / 20.f);
         tgtOut = std::pow(10.f, outDb / 20.f);
         tgtInvRatio = 1.f / ratio;
-        if (snap) { inGain = tgtIn; outGain = tgtOut; invRatio = tgtInvRatio; snap = false; }
+        if (snap) { thr = tgtThr; inGain = tgtIn; outGain = tgtOut; invRatio = tgtInvRatio; snap = false; }
         attackSec  = attackUs * 1e-6f;
         releaseSec = releaseMs * 1e-3f;
         update();
@@ -25,9 +26,10 @@ public:
         inGain   = smoothCoef * inGain   + (1.f - smoothCoef) * tgtIn;
         outGain  = smoothCoef * outGain  + (1.f - smoothCoef) * tgtOut;
         invRatio = smoothCoef * invRatio + (1.f - smoothCoef) * tgtInvRatio;
+        thr = smoothCoef * thr + (1.f - smoothCoef) * tgtThr;
         const float v = x * inGain;
         const float levelDb = 20.f * std::log10(std::max(std::fabs(v), 1e-9f));
-        const float over = levelDb - kThresholdDb;
+        const float over = levelDb - thr;
         const float target = over > 0.f ? over * (1.f - invRatio) : 0.f;
         const float c = target > grDb ? attackCoef : releaseCoef;
         grDb = c * grDb + (1.f - c) * target;
@@ -36,10 +38,10 @@ public:
     }
 
 private:
-    static constexpr float kThresholdDb = -18.f;
     static constexpr float kSmoothSec = 0.01f;
     double sampleRate = 44100.0;
     float inGain = 1.f, outGain = 1.f, invRatio = 0.25f;
+    float thr = -18.f, tgtThr = -18.f;
     float tgtIn = 1.f, tgtOut = 1.f, tgtInvRatio = 0.25f, smoothCoef = 0.f;
     bool snap = true;
     float attackSec = 2e-4f, releaseSec = 0.4f;
@@ -55,8 +57,8 @@ private:
 class MonoFETProcessor {
 public:
     void prepare(double sr) { comp.prepare(sr); }
-    void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio) {
-        comp.setParams(inDb, outDb, attackUs, releaseMs, ratio);
+    void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio, float thrDb = -18.f) {
+        comp.setParams(inDb, outDb, attackUs, releaseMs, ratio, thrDb);
     }
     // Seguro em processamento in-place quando in == outL.
     void process(const float* in, float* outL, float* outR, int n) {
