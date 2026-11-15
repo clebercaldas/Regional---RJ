@@ -41,10 +41,10 @@ int main() {
     p.prepare(sr);
     for (int i = 0; i < n; ++i) in[i] = 0.05f;
     p.setParams(0, 0, 200, 400, 4);
-    p.process(in.data(), L.data(), 100);
+    p.process(in.data(), L.data(), 1000);   // escorva a linha de atraso (latencia 240 samples)
     p.setParams(24, 0, 200, 400, 4);
-    p.process(in.data(), L.data() + 100, 2000);
-    float step = 0; for (int i = 1; i < 2100; ++i) step = std::max(step, std::fabs(L[i] - L[i - 1]));
+    p.process(in.data(), L.data() + 1000, 2000);
+    float step = 0; for (int i = 301; i < 3000; ++i) step = std::max(step, std::fabs(L[i] - L[i - 1]));
     std::printf("4) salto de Input: degrau=%g (esperado < 5e-3)\n", step);
     if (step > 5e-3f) ++fails;
 
@@ -58,6 +58,30 @@ int main() {
     float lo = peak(L, n / 2);
     std::printf("5) threshold 0 dB: pico=%g (esperado ~0), -40 dB: pico=%g (esperado > 0.2)\n", hi, lo);
     if (hi > 0.05f || lo < 0.2f) ++fails;
+
+    // 6) Latencia fixa: impulso sai exatamente em 100 + latencySamples
+    p.prepare(sr);
+    std::vector<float> imp(2000, 0.f), o6(2000, 0.f); imp[100] = 0.5f;
+    p.setParams(0, 0, 200, 400, 4, 0.f, 2.f);
+    p.process(imp.data(), o6.data(), 2000);
+    int am = 0; for (int i = 0; i < 2000; ++i) if (std::fabs(o6[i]) > std::fabs(o6[am])) am = i;
+    std::printf("6) latencia: pico em %d (esperado %d)\n", am, 100 + p.latencySamples());
+    if (am != 100 + p.latencySamples()) ++fails;
+
+    // 7) Lookahead: o ataque da caixa e pego antes. Burst de 0 dBFS apos silencio, janela de 1 ms
+    auto burst = [&](float lookMs) {
+        MonoFETProcessor q; q.prepare(sr);
+        std::vector<float> a(9600, 0.f), o(9600, 0.f);
+        for (int i = 2400; i < 9600; ++i) a[i] = std::sin(2 * 3.14159265f * 440.f * i / sr);
+        q.setParams(0, 0, 800, 400, 4, -18.f, lookMs);
+        q.process(a.data(), o.data(), 9600);
+        int s = 2400 + q.latencySamples();
+        float m = 0; for (int i = s; i < s + 48; ++i) m = std::max(m, std::fabs(o[i]));
+        return m;
+    };
+    float m0 = burst(0.f), m5 = burst(5.f);
+    std::printf("7) lookahead 0 ms: %g, 5 ms: %g (esperado 5 ms > 1.2x)\n", m0, m5);
+    if (m5 < 1.2f * m0) ++fails;
 
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;

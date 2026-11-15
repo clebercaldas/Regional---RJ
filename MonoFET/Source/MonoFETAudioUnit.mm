@@ -2,8 +2,9 @@
 #import <AVFoundation/AVFoundation.h>
 #include <atomic>
 #include "MonoFETProcessor.hpp"
+#include "MonoFETPresets.hpp"
 
-enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
+enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kLookahead, kNumParams };
 
 @interface MonoFETAudioUnit : AUAudioUnit
 @end
@@ -12,6 +13,8 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
     AUAudioUnitBus *_inBus, *_outBus;
     AUAudioUnitBusArray *_inBusses, *_outBusses;
     AUParameterTree *_tree;
+    NSArray<AUAudioUnitPreset *> *_presets;
+    AUAudioUnitPreset *_currentPreset;
     MonoFETProcessor _dsp;
     std::atomic<float> _p[kNumParams];
 }
@@ -39,14 +42,37 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
     AUParameter *pRel = [AUParameterTree createParameterWithIdentifier:@"release" name:@"Release" address:kRelease min:50   max:1100 unit:kAudioUnitParameterUnit_Milliseconds  unitName:nil  flags:fl valueStrings:nil dependentParameters:nil];
     AUParameter *pRat = [AUParameterTree createParameterWithIdentifier:@"ratio"   name:@"Ratio"   address:kRatio   min:1.5  max:20   unit:kAudioUnitParameterUnit_Ratio         unitName:nil  flags:fl valueStrings:nil dependentParameters:nil];
     AUParameter *pThr = [AUParameterTree createParameterWithIdentifier:@"threshold" name:@"Threshold" address:kThreshold min:-60 max:0 unit:kAudioUnitParameterUnit_Decibels unitName:nil flags:fl valueStrings:nil dependentParameters:nil];
-    pIn.value = 12; pOut.value = 0; pAtk.value = 200; pRel.value = 400; pRat.value = 4; pThr.value = -18;
-    for (AUParameter *prm in @[pIn, pOut, pAtk, pRel, pRat, pThr]) _p[prm.address].store(prm.value);
+    AUParameter *pLook = [AUParameterTree createParameterWithIdentifier:@"lookahead" name:@"Lookahead" address:kLookahead min:0 max:5 unit:kAudioUnitParameterUnit_Milliseconds unitName:nil flags:fl valueStrings:nil dependentParameters:nil];
+    pIn.value = 12; pOut.value = 0; pAtk.value = 200; pRel.value = 400; pRat.value = 4; pThr.value = -18; pLook.value = 2;
+    for (AUParameter *prm in @[pIn, pOut, pAtk, pRel, pRat, pThr, pLook]) _p[prm.address].store(prm.value);
 
-    _tree = [AUParameterTree createTreeWithChildren:@[pIn, pOut, pAtk, pRel, pRat, pThr]];
+    _tree = [AUParameterTree createTreeWithChildren:@[pIn, pOut, pAtk, pRel, pRat, pThr, pLook]];
     std::atomic<float> *p = _p;
     _tree.implementorValueObserver = ^(AUParameter *param, AUValue value) { p[param.address].store(value); };
     _tree.implementorValueProvider = ^AUValue(AUParameter *param) { return p[param.address].load(); };
+
+    NSMutableArray *list = [NSMutableArray array];
+    for (int i = 0; i < kMonoFETNumPresets; ++i) {
+        AUAudioUnitPreset *pr = [AUAudioUnitPreset new];
+        pr.number = i;
+        pr.name = [NSString stringWithUTF8String:kMonoFETPresets[i].name];
+        [list addObject:pr];
+    }
+    _presets = list;
     return self;
+}
+
+- (NSTimeInterval)latency { return MonoFETProcessor::kLatencySec; }
+- (BOOL)supportsUserPresets { return YES; }
+- (NSArray<AUAudioUnitPreset *> *)factoryPresets { return _presets; }
+- (AUAudioUnitPreset *)currentPreset { return _currentPreset; }
+- (void)setCurrentPreset:(AUAudioUnitPreset *)preset {
+    if (preset.number >= 0 && preset.number < kMonoFETNumPresets) {
+        const MonoFETPreset &q = kMonoFETPresets[preset.number];
+        const float v[kNumParams] = {q.inDb, q.outDb, q.attackUs, q.releaseMs, q.ratio, q.thrDb, q.lookMs};
+        for (int a = 0; a < kNumParams; ++a) [_tree parameterWithAddress:a].value = v[a];
+    }
+    _currentPreset = preset;   // numero negativo = preset de usuario (parametros vem do estado salvo)
 }
 
 - (AUAudioUnitBusArray *)inputBusses  { return _inBusses; }
@@ -88,7 +114,7 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
         out->mBuffers[0].mDataByteSize = frames * sizeof(float);
 
         dsp->setParams(p[kInput].load(), p[kOutput].load(), p[kAttack].load(), p[kRelease].load(),
-                       p[kRatio].load(), p[kThreshold].load());
+                       p[kRatio].load(), p[kThreshold].load(), p[kLookahead].load());
         dsp->process((const float *)in.mBuffers[0].mData, o, (int)frames);
         return noErr;
     };
