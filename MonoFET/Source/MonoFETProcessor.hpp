@@ -53,21 +53,19 @@ private:
     }
 };
 
-// mono -> L=R -> (R: polaridade invertida + FET) -> L + R -> duplicado em dois canais de saida
+// mono -> L=R -> (R: polaridade invertida + FET) -> L + R -> saida mono
 class MonoFETProcessor {
 public:
     void prepare(double sr) { comp.prepare(sr); }
     void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio, float thrDb = -18.f) {
         comp.setParams(inDb, outDb, attackUs, releaseMs, ratio, thrDb);
     }
-    // Seguro em processamento in-place quando in == outL.
-    void process(const float* in, float* outL, float* outR, int n) {
+    // Seguro em processamento in-place (in == out).
+    void process(const float* in, float* out, int n) {
         for (int i = 0; i < n; ++i) {
             const float l = in[i];
             const float r = -comp.process(in[i]);
-            const float y = l + r;
-            outL[i] = y;
-            outR[i] = y;
+            out[i] = l + r;
         }
     }
 private:

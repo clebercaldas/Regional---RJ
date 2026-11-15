@@ -42,7 +42,7 @@ targets:
           NSExtensionAttributes:
             AudioComponents:
               - name: "Cleber: MonoFET"
-                description: Mono para estereo com ramo R invertido e compressor FET
+                description: Mono com ramo duplicado invertido e compressor FET, saida mono
                 manufacturer: Cldr
                 subtype: mfet
                 type: aufx

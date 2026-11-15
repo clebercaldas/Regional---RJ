@@ -1,7 +1,6 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 #include <atomic>
-#include <vector>
 #include "MonoFETProcessor.hpp"
 
 enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
@@ -15,7 +14,6 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
     AUParameterTree *_tree;
     MonoFETProcessor _dsp;
     std::atomic<float> _p[kNumParams];
-    std::vector<float> _scratch;
 }
 
 - (instancetype)initWithComponentDescription:(AudioComponentDescription)desc
@@ -25,12 +23,12 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
     if (!self) return nil;
 
     AVAudioFormat *inFmt  = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:1];
-    AVAudioFormat *outFmt = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:2];
+    AVAudioFormat *outFmt = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:1];
     _inBus  = [[AUAudioUnitBus alloc] initWithFormat:inFmt  error:outError];
     _outBus = [[AUAudioUnitBus alloc] initWithFormat:outFmt error:outError];
     if (!_inBus || !_outBus) return nil;
     _inBus.maximumChannelCount  = 1;
-    _outBus.maximumChannelCount = 2;
+    _outBus.maximumChannelCount = 1;
     _inBusses  = [[AUAudioUnitBusArray alloc] initWithAudioUnit:self busType:AUAudioUnitBusTypeInput  busses:@[_inBus]];
     _outBusses = [[AUAudioUnitBusArray alloc] initWithAudioUnit:self busType:AUAudioUnitBusTypeOutput busses:@[_outBus]];
 
@@ -54,29 +52,27 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
 - (AUAudioUnitBusArray *)inputBusses  { return _inBusses; }
 - (AUAudioUnitBusArray *)outputBusses { return _outBusses; }
 - (AUParameterTree *)parameterTree    { return _tree; }
-- (NSArray<NSNumber *> *)channelCapabilities { return @[@1, @2]; }   // 1 entrada, 2 saidas
+- (NSArray<NSNumber *> *)channelCapabilities { return @[@1, @1]; }   // 1 entrada, 1 saida
 
 - (BOOL)shouldChangeToFormat:(AVAudioFormat *)format forBus:(AUAudioUnitBus *)bus {
-    return format.channelCount == (bus == _inBus ? 1u : 2u);
+    return format.channelCount == 1u;
 }
 
 - (BOOL)allocateRenderResourcesAndReturnError:(NSError **)outError {
     if (![super allocateRenderResourcesAndReturnError:outError]) return NO;
     _dsp.prepare(_outBus.format.sampleRate);
-    _scratch.assign(self.maximumFramesToRender, 0.f);
     return YES;
 }
 
 - (AUInternalRenderBlock)internalRenderBlock {
     MonoFETProcessor *dsp = &_dsp;
     std::atomic<float> *p = _p;
-    std::vector<float> *scratch = &_scratch;
 
     return ^AUAudioUnitStatus(AudioUnitRenderActionFlags *flags, const AudioTimeStamp *ts,
                               AUAudioFrameCount frames, NSInteger outputBusNumber,
                               AudioBufferList *out, const AURenderEvent *events,
                               AURenderPullInputBlock pull) {
-        if (!pull || out->mNumberBuffers < 2 || frames > scratch->size()) return kAudioUnitErr_Uninitialized;
+        if (!pull || out->mNumberBuffers < 1) return kAudioUnitErr_Uninitialized;
 
         AudioBufferList in;
         in.mNumberBuffers = 1;
@@ -87,15 +83,13 @@ enum { kInput = 0, kOutput, kAttack, kRelease, kRatio, kThreshold, kNumParams };
         AUAudioUnitStatus st = pull(&f, ts, frames, 0, &in);
         if (st != noErr) return st;
 
-        float *l = (float *)out->mBuffers[0].mData;
-        float *r = (float *)out->mBuffers[1].mData;
-        if (!l) { l = (float *)in.mBuffers[0].mData; out->mBuffers[0].mData = l; }
-        if (!r) { r = scratch->data();               out->mBuffers[1].mData = r; }
-        out->mBuffers[0].mDataByteSize = out->mBuffers[1].mDataByteSize = frames * sizeof(float);
+        float *o = (float *)out->mBuffers[0].mData;
+        if (!o) { o = (float *)in.mBuffers[0].mData; out->mBuffers[0].mData = o; }
+        out->mBuffers[0].mDataByteSize = frames * sizeof(float);
 
         dsp->setParams(p[kInput].load(), p[kOutput].load(), p[kAttack].load(), p[kRelease].load(),
                        p[kRatio].load(), p[kThreshold].load());
-        dsp->process((const float *)in.mBuffers[0].mData, l, r, (int)frames);
+        dsp->process((const float *)in.mBuffers[0].mData, o, (int)frames);
         return noErr;
     };
 }
