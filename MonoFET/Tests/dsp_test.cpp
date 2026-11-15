@@ -62,7 +62,7 @@ int main() {
     // 6) Latencia fixa: impulso sai exatamente em 100 + latencySamples
     p.prepare(sr);
     std::vector<float> imp(2000, 0.f), o6(2000, 0.f); imp[100] = 0.5f;
-    p.setParams(0, 0, 200, 400, 4, 0.f, 2.f);
+    p.setParams(0, 0, 200, 400, 4, -60.f, 2.f);
     p.process(imp.data(), o6.data(), 2000);
     int am = 0; for (int i = 0; i < 2000; ++i) if (std::fabs(o6[i]) > std::fabs(o6[am])) am = i;
     std::printf("6) latencia: pico em %d (esperado %d)\n", am, 100 + p.latencySamples());
@@ -86,7 +86,7 @@ int main() {
     // 8) Lookahead Off: latencia zero, impulso sai na mesma amostra
     p.prepare(sr);
     std::fill(o6.begin(), o6.end(), 0.f);
-    p.setParams(0, 0, 200, 400, 4, 0.f, 2.f, false);
+    p.setParams(0, 0, 200, 400, 4, -60.f, 2.f, false);
     p.process(imp.data(), o6.data(), 2000);
     am = 0; for (int i = 0; i < 2000; ++i) if (std::fabs(o6[i]) > std::fabs(o6[am])) am = i;
     std::printf("8) off: latencia=%d, pico em %d (esperado 0 e 100)\n", p.latencySamples(), am);
@@ -165,17 +165,6 @@ int main() {
         float pk = peak(og, 4800);
         std::printf("15) input 12 dB / output 0 dB: pico=%g (esperado < 1e-4; antes da compensacao ~0.03)\n", pk);
         if (pk > 1e-4f) ++fails;
-    }
-
-    // 16) Saturacao desligavel: com threshold alto (sem compressao) e saturacao off, cancela exatamente
-    {
-        auto sg = tone(1000.f, 0.2f, 9600); std::vector<float> og(9600);
-        MonoFETProcessor a; a.prepare(sr); a.setParams(12, 0, 200, 400, 4, 0.f, 2.f, true, 20.f, 20000.f, false, true, true);
-        a.process(sg.data(), og.data(), 9600);  float onPk = peak(og, 4800);
-        MonoFETProcessor b; b.prepare(sr); b.setParams(12, 0, 200, 400, 4, 0.f, 2.f, true, 20.f, 20000.f, false, true, false);
-        b.process(sg.data(), og.data(), 9600);  float offPk = peak(og, 4800);
-        std::printf("16) saturacao on: pico=%g (esperado > 1e-3), off: pico=%g (esperado < 1e-6)\n", onPk, offPk);
-        if (onPk < 1e-3f || offPk > 1e-6f) ++fails;
     }
 
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);

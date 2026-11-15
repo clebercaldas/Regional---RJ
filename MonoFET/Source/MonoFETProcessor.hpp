@@ -51,7 +51,6 @@ public:
 
     // xDet: sinal visto pelo detector (adiantado). xAudio: sinal que recebe o ganho (atrasado).
     void reset() { grDb = 0.f; }
-    void setSaturation(bool on) { sat = on; }
 
     float process(float xDet, float xAudio) {
         inGain   = smoothCoef * inGain   + (1.f - smoothCoef) * tgtIn;
@@ -65,12 +64,11 @@ public:
         const float c = target > grDb ? attackCoef : releaseCoef;
         grDb = c * grDb + (1.f - c) * target;
         const float c2 = xAudio * inGain * std::pow(10.f, -grDb / 20.f);
-        return (sat ? std::tanh(c2) : c2) * outGain / inGain;   // saturacao leve opcional; Output compensa o Input (0 dB = cancelacao com o ramo seco)
+        return c2 * outGain / inGain;   // VCA linear; Output compensa o Input (0 dB = cancelacao com o ramo seco)
     }
 
 private:
     static constexpr float kSmoothSec = 0.01f;
-    bool sat = true;
     double sampleRate = 44100.0;
     float inGain = 1.f, outGain = 1.f, invRatio = 0.25f;
     float thr = -18.f, tgtThr = -18.f;
@@ -107,9 +105,8 @@ public:
 
     void setParams(float inDb, float outDb, float attackUs, float releaseMs, float ratio,
                    float thrDb = -18.f, float lookMs = 2.f, bool lookOn = true,
-                   float hpfHz = 20.f, float lpfHz = 20000.f, bool eqMode = false, bool compOn = true, bool satOn = true) {
+                   float hpfHz = 20.f, float lpfHz = 20000.f, bool eqMode = false, bool compOn = true) {
         comp.setParams(inDb, outDb, attackUs, releaseMs, ratio, thrDb);
-        comp.setSaturation(satOn);
         tgtHp = hpfHz; tgtLp = lpfHz; eq = eqMode; compEnabled = compOn;
         hpOff = hpfHz <= 20.5f; lpOff = lpfHz >= 19990.f;   // nas pontas o filtro sai do caminho (sem fase)
         if (filtSnap) { curHp = tgtHp; curLp = tgtLp; hpf.setHP(curHp, sampleRate); lpf.setLP(curLp, sampleRate); filtSnap = false; }
