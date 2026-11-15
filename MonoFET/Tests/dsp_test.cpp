@@ -105,6 +105,57 @@ int main() {
     std::printf("9) alternar on/off: saida valida=%d (esperado 1)\n", ok);
     if (!ok) ++fails;
 
+    auto tone = [&](float hz, float amp, int len) {
+        std::vector<float> v(len);
+        for (int i = 0; i < len; ++i) v[i] = amp * std::sin(2 * 3.14159265f * hz * i / sr);
+        return v;
+    };
+    auto run = [&](const std::vector<float>& x, bool eqMode, bool compOn, float hp, float lp, float thr) {
+        MonoFETProcessor q; q.prepare(sr);
+        std::vector<float> o(x.size());
+        q.setParams(0, 0, 200, 400, 4, thr, 2.f, true, hp, lp, eqMode, compOn);
+        q.process(x.data(), o.data(), (int)x.size());
+        return peak(o, x.size() / 2);
+    };
+
+    // 10) Sidechain: LPF 3 kHz faz o detector ignorar um tom de 10 kHz forte (sem compressao => saida ~0)
+    auto tHi = tone(10000.f, 0.5f, 48000), tMid = tone(500.f, 0.5f, 48000);
+    float scHi = run(tHi, false, true, 20.f, 3000.f, -30.f);
+    float scLo = run(tMid, false, true, 20.f, 3000.f, -30.f);
+    std::printf("10) sidechain LPF 3k: 10 kHz pico=%g (esperado < 0.15), 500 Hz pico=%g (esperado > 0.15)\n", scHi, scLo);
+    if (scHi > 0.15f || scLo < 0.15f) ++fails;
+
+    // 11) Sidechain: HPF 300 Hz faz o detector ignorar um tom de 40 Hz
+    auto vlo = tone(40.f, 0.5f, 48000);
+    float scHp = run(vlo, false, true, 300.f, 20000.f, -30.f);
+    float scMid = run(tHi, false, true, 300.f, 20000.f, -30.f);
+    std::printf("11) sidechain HPF 300: 40 Hz pico=%g (esperado < 0.15), 10 kHz pico=%g (esperado > 0.15)\n", scHp, scMid);
+    if (scHp > 0.15f || scMid < 0.15f) ++fails;
+
+    // 12) Compressor off, modo Sidechain: saida e silencio (x - x)
+    float offSc = run(tMid, false, false, 100.f, 8000.f, -30.f);
+    std::printf("12) comp off + sidechain: pico=%g (esperado 0)\n", offSc);
+    if (offSc > 1e-6f) ++fails;
+
+    // 13) Compressor off, modo EQ: saida = x - EQ(x); HPF 300 deixa passar 40 Hz quase todo (x - ~0), 10 kHz quase some
+    float offEqLow = run(vlo, true, false, 300.f, 20000.f, -30.f);
+    float offEqHi  = run(tHi,  true, false, 300.f, 20000.f, -30.f);
+    std::printf("13) comp off + EQ HPF 300: 40 Hz pico=%g (esperado > 0.4), 10 kHz pico=%g (esperado < 0.1)\n", offEqLow, offEqHi);
+    if (offEqLow < 0.4f || offEqHi > 0.1f) ++fails;
+
+    // 14) Mover os cortes com audio rodando: sem NaN e saida limitada
+    {
+        MonoFETProcessor q; q.prepare(sr);
+        auto sg = tone(1000.f, 0.8f, 4800); std::vector<float> og(4800); bool ok = true;
+        for (int k = 0; k < 8; ++k) {
+            q.setParams(12, 0, 200, 400, 4, -18.f, 2.f, true, 20.f + 40.f * k, 20000.f - 2000.f * k, k % 2, true);
+            q.process(sg.data(), og.data(), 4800);
+            for (float v : og) if (!std::isfinite(v) || std::fabs(v) > 2.f) ok = false;
+        }
+        std::printf("14) cortes em movimento: saida valida=%d (esperado 1)\n", ok);
+        if (!ok) ++fails;
+    }
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }
