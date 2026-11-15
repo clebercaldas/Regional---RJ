@@ -167,6 +167,17 @@ int main() {
         if (pk > 1e-4f) ++fails;
     }
 
+    // 16) Saturacao desligavel: com threshold alto (sem compressao) e saturacao off, cancela exatamente
+    {
+        auto sg = tone(1000.f, 0.2f, 9600); std::vector<float> og(9600);
+        MonoFETProcessor a; a.prepare(sr); a.setParams(12, 0, 200, 400, 4, 0.f, 2.f, true, 20.f, 20000.f, false, true, true);
+        a.process(sg.data(), og.data(), 9600);  float onPk = peak(og, 4800);
+        MonoFETProcessor b; b.prepare(sr); b.setParams(12, 0, 200, 400, 4, 0.f, 2.f, true, 20.f, 20000.f, false, true, false);
+        b.process(sg.data(), og.data(), 9600);  float offPk = peak(og, 4800);
+        std::printf("16) saturacao on: pico=%g (esperado > 1e-3), off: pico=%g (esperado < 1e-6)\n", onPk, offPk);
+        if (onPk < 1e-3f || offPk > 1e-6f) ++fails;
+    }
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }
