@@ -156,6 +156,17 @@ int main() {
         if (!ok) ++fails;
     }
 
+    // 15) Compensacao Input/Output: Input 12 dB, Output 0 dB, sinal abaixo do threshold => ainda cancela
+    {
+        MonoFETProcessor q; q.prepare(sr);
+        auto sg = tone(1000.f, 0.01f, 9600); std::vector<float> og(9600);
+        q.setParams(12, 0, 200, 400, 4, -18.f);
+        q.process(sg.data(), og.data(), 9600);
+        float pk = peak(og, 4800);
+        std::printf("15) input 12 dB / output 0 dB: pico=%g (esperado < 1e-4; antes da compensacao ~0.03)\n", pk);
+        if (pk > 1e-4f) ++fails;
+    }
+
     std::printf(fails ? "FALHOU (%d)\n" : "OK\n", fails);
     return fails;
 }

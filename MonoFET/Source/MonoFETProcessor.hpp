@@ -64,7 +64,7 @@ public:
         const float c = target > grDb ? attackCoef : releaseCoef;
         grDb = c * grDb + (1.f - c) * target;
         const float c2 = xAudio * inGain * std::pow(10.f, -grDb / 20.f);
-        return std::tanh(c2) * outGain;   // saturacao leve
+        return std::tanh(c2) * outGain / inGain;   // saturacao leve; Output compensa o Input (0 dB = cancelacao com o ramo seco)
     }
 
 private:
